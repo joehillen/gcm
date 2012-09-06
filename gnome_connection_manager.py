@@ -20,7 +20,7 @@
 # - revisar buscador, a veces no encuentra las palabras
 # - sortcut para moverse entre notebooks
 # - quitar los "accelerator" del archivo .glade (o dejarlos opcionales)
-# - soporte picocom (o minicom, o pyserial) para comunicación serial
+# - soporte picocom (o minicom, o pyserial, ser2net) para comunicación serial
 # - Permitir modificar combinacion para cerrar aplicacion CTRL+Q
 # - Icono en system tray
 # - Quitar shortcut ALT+F para archivo 
@@ -37,8 +37,24 @@
 # - One "nice to have" would be the ability for GCM to use my existing PuTTY sessions instead of entering everything a second time. External script for that that parses ~/putty/session files
 # - Enter passwords in commands and hide them, #P=password (Angelo Corsaro). TextView doesnt support masking text, it needs a different implementation. Pending.
 # - Persist history of cluster commands. is it really necessary?
+# - Option to disable shortcuts
 #
 #Changelog: 
+# v1.1.0 - Bugfix: public key field was not saved (thanks to Benoît Georgelin for reporting the bug)
+#        - Bugfix: bug in AES library resulted in blank passwords randomly being replaced by some characters (thanks to Boyan Peychev for reporting the bug)
+#        - Bugfix: drag and release tab on the same notebook caused tab to be closed
+#        - Bugfix: Estado de nodos expandidos/contraidos se revertia a un estado anterior al editar por segunda vez un host
+#        - Bugfix: Cluster window had to be resized to show the text area in some setups
+#        - Bugfix: Blank lines in commands were removed when restarting application (thanks to Nicholas O'Neill for reporting the bug)
+#        - Se agrega traducción a koreano (thanks to Jong Hoon Lee)
+#        - Better indentation in server panel
+#        - Disabled the horizontal scroll bar in the console        
+#        - Added option to open local console on application startup (thanks to Boaman Surebun for the implementation)
+#        - Se agrega opción para copiar todo el buffer al porta-papeles
+#        - Se usa la consola por defecto del usuario en vez de bash
+#        - Se exponen algunos shortcuts
+#        - Added menu with servers list
+#
 # v1.0.0 - Bugfix: last group was collapsed when adding/editing a new host. All collapsed nodes are preserved now. (thanks to Kevin Brennan for reporting the bug)
 #        - Bugfix: importing servers in another computer cleared all the passwords. (thanks to Simon Pitt for reporting the bug)
 #        - Bugfix: buttons to choose colors did not reflect the selected color (thanks to Sverre Rakkenes for reporting the bug)
@@ -184,7 +200,7 @@ import pango
 import pyAES
 
 app_name = "Gnome Connection Manager"
-app_version = "1.0.0"
+app_version = "1.1.0"
 app_web = "http://www.kuthulu.com/gcm"
 app_fileversion = "1"
 
@@ -192,6 +208,7 @@ BASE_PATH = os.path.dirname(os.path.abspath(sys.argv[0]))
 
 SSH_BIN = 'ssh'
 TEL_BIN = 'telnet'
+SHELL   = os.environ["SHELL"]
 
 SSH_COMMAND = BASE_PATH + "/ssh.expect"
 CONFIG_FILE = os.getenv("HOME") + "/.gcm/gcm.conf"
@@ -207,6 +224,7 @@ VSPLIT = 1
 
 _COPY =      ["copy"]
 _PASTE =     ["paste"]
+_COPY_ALL =  ["copy_all"]
 _SAVE =      ["save"]
 _FIND =      ["find"]
 _CLEAR =     ["reset"]
@@ -225,6 +243,7 @@ _CONSOLE_8 = ["console_8"]
 _CONSOLE_9 = ["console_9"]
 _CONSOLE_CLOSE = ["console_close"]
 _CONSOLE_RECONNECT = ["console_reconnect"]
+_CONNECT = ["connect"]
 
 ICON_PATH = BASE_PATH + "/icon.png"
 
@@ -242,6 +261,7 @@ enc_passwd=''
 class conf():
     WORD_SEPARATORS="-A-Za-z0-9,./?%&#:_=+@~"
     BUFFER_LINES=2000
+    STARTUP_LOCAL=True
     CONFIRM_ON_EXIT=True
     FONT_COLOR = ""
     BACK_COLOR = ""
@@ -483,11 +503,16 @@ class Wmain(SimpleGladeApp):
         
         self.get_widget('txtSearch').modify_text(gtk.STATE_NORMAL, gtk.gdk.Color('darkgray'))
         
+        if conf.STARTUP_LOCAL:
+            self.addTab(self.nbConsole,'local')
+        
     #-- Wmain.new {
     def new(self):        
         self.hpMain = self.get_widget("hpMain")
         self.nbConsole = self.get_widget("nbConsole")
         self.treeServers = self.get_widget("treeServers")
+        self.menuServers = self.get_widget("menuServers")
+        self.menuCustomCommands = self.get_widget("menuCustomCommands")
         self.current = None
         self.count = 0        
     #-- Wmain.new }
@@ -510,15 +535,17 @@ class Wmain(SimpleGladeApp):
                 self.popupMenu.popup( None, None, None, event.button, event.time)
             return True
     
-    def on_terminal_keypress(self, widget, event, *args):   
+    def on_terminal_keypress(self, widget, event, *args):
         if shortcuts.has_key(get_key_name(event)):
             cmd = shortcuts[get_key_name(event)]
             if type(cmd) == list:
                 #comandos predefinidos
                 if cmd == _COPY:
-                    widget.copy_clipboard()
+                    self.terminal_copy(widget)
                 elif cmd == _PASTE:
-                    widget.paste_clipboard()
+                    self.terminal_paste(widget)
+                elif cmd == _COPY_ALL:
+                    self.terminal_copy_all(widget)
                 elif cmd == _SAVE:
                     self.show_save_buffer(widget)
                 elif cmd == _FIND:
@@ -544,7 +571,7 @@ class Wmain(SimpleGladeApp):
                         wid.destroy()
                 elif cmd == _CONSOLE_RECONNECT:                    
                     if not hasattr(widget, "command"):
-                        widget.fork_command("bash")
+                        widget.fork_command(SHELL)
                     else:
                         widget.fork_command(widget.command[0], widget.command[1])
                         while gtk.events_pending():
@@ -555,6 +582,8 @@ class Wmain(SimpleGladeApp):
                             gobject.timeout_add(2000, self.send_data, widget, widget.command[2])                    
                     widget.get_parent().get_parent().get_tab_label(widget.get_parent()).mark_tab_as_active()
                     return True
+                elif cmd == _CONNECT:
+                    self.on_btnConnect_clicked(None)
                 elif cmd[0][0:8] == "console_":
                     page = int(cmd[0][8:]) - 1                   
                     widget.get_parent().get_parent().set_current_page(page)                
@@ -567,7 +596,7 @@ class Wmain(SimpleGladeApp):
     
     def on_terminal_selection(self, widget, *args):
         if conf.AUTO_COPY_SELECTION:
-            widget.copy_clipboard()                
+            self.terminal_copy(widget)
         return True
         
     def find_word(self, backwards=False):
@@ -609,20 +638,22 @@ class Wmain(SimpleGladeApp):
         self.search['terminal'] = terminal
         self.search['word'] = self.get_widget('txtSearch').get_text()
         return True
-        
+    
     def on_popupmenu(self, widget, item, *args):        
         if item == 'V': #PASTE
-            self.popupMenu.terminal.paste_clipboard()
+            self.terminal_paste(self.popupMenu.terminal)
             return True
         elif item == 'C': #COPY
-            self.popupMenu.terminal.copy_clipboard()
+            self.terminal_copy(self.popupMenu.terminal)
             return True
         elif item == 'CV': #COPY and PASTE
-            self.popupMenu.terminal.copy_clipboard()
-            self.popupMenu.terminal.paste_clipboard()
+            self.terminal_copy_paste(self.popupMenu.terminal)
             return True            
         elif item == 'A': #SELECT ALL
-            self.popupMenu.terminal.select_all()
+            self.terminal_select_all(self.popupMenu.terminal)
+            return True
+        elif item == 'CA': #COPY ALL
+            self.terminal_copy_all(self.popupMenu.terminal)
             return True
         elif item == 'X': #CLOSE CONSOLE
             widget = self.popupMenu.terminal.get_parent()
@@ -682,7 +713,7 @@ class Wmain(SimpleGladeApp):
             tab = self.popupMenuTab.label.get_parent().get_parent()
             term = tab.widget.get_child()
             if not hasattr(term, "command"):
-                term.fork_command("bash")
+                term.fork_command(SHELL)
             else:
                 term.fork_command(term.command[0], term.command[1])
                 while gtk.events_pending():
@@ -744,6 +775,12 @@ class Wmain(SimpleGladeApp):
         menuItem.set_image(gtk.image_new_from_stock(gtk.STOCK_SELECT_ALL, gtk.ICON_SIZE_MENU))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'A')
+        menuItem.show()
+        
+        self.popupMenu.mnuCopyAll = menuItem = gtk.ImageMenuItem(_("Copiar todo"))
+        menuItem.set_image(gtk.image_new_from_stock(gtk.STOCK_SELECT_ALL, gtk.ICON_SIZE_MENU))
+        self.popupMenu.append(menuItem)
+        menuItem.connect("activate", self.on_popupmenu, 'CA')
         menuItem.show()
         
         self.popupMenu.mnuSelect = menuItem = gtk.ImageMenuItem(_("Guardar buffer en archivo"))
@@ -890,16 +927,73 @@ class Wmain(SimpleGladeApp):
         menuItem.connect("activate", self.on_popupmenu, 'L')
         menuItem.show()
         
+    def createMenuItem(self, shortcut, label):
+        menuItem = gtk.MenuItem('')
+        menuItem.get_child().set_markup("<span color='blue'  size='x-small'>[%s]</span> %s" % (shortcut, label))
+        menuItem.show()
+        return menuItem
+                
     def populateCommandsMenu(self):
-        self.popupMenu.mnuCommands.foreach(lambda x: self.popupMenu.mnuCommands.remove(x))        
+        self.popupMenu.mnuCommands.foreach(lambda x: self.popupMenu.mnuCommands.remove(x))
+        self.menuCustomCommands.foreach(lambda x: self.menuCustomCommands.remove(x))
         for x in shortcuts:
             if type(shortcuts[x]) != list:
-                menuItem = gtk.MenuItem('')
-                menuItem.get_child().set_markup("<span color='blue'  size='x-small'>[%s]</span> %s" % (x, shortcuts[x][0:30]))
+                menuItem = self.createMenuItem(x, shortcuts[x][0:30])
                 self.popupMenu.mnuCommands.append(menuItem)
                 menuItem.connect("activate", self.on_popupmenu, 'CP', shortcuts[x])
-                menuItem.show()        
+                
+                menuItem = self.createMenuItem(x, shortcuts[x][0:30])
+                self.menuCustomCommands.append(menuItem)
+                menuItem.connect("activate", self.on_menuCustomCommands_activate, shortcuts[x])
+                
+    def on_menuCustomCommands_activate(self, widget, command):
+        terminal = self.find_active_terminal(self.hpMain)
+        if terminal:
+            terminal.feed_child(command)
+    
+    def terminal_copy(self, terminal):
+        terminal.copy_clipboard()
+
+    def terminal_paste(self, terminal):
+        terminal.paste_clipboard()
+    
+    def terminal_copy_paste(self, terminal):
+        terminal.copy_clipboard()
+        terminal.paste_clipboard()
+          
+    def terminal_select_all(self, terminal):
+        terminal.select_all()
+
+    def terminal_copy_all(self, terminal):
+        terminal.select_all()
+        terminal.copy_clipboard()
+        terminal.select_none()
+                    
+    def on_menuCopy_activate(self, widget):
+        terminal = self.find_active_terminal(self.hpMain)
+        if terminal:
+            self.terminal_copy(terminal)
+    
+    def on_menuPaste_activate(self, widget):
+        terminal = self.find_active_terminal(self.hpMain)
+        if terminal:
+            self.terminal_paste(terminal)
         
+    def on_menuCopyPaste_activate(self, widget):
+        terminal = self.find_active_terminal(self.hpMain)
+        if terminal:
+            self.terminal_copy_paste(terminal)
+            
+    def on_menuSelectAll_activate(self, widget):
+        terminal = self.find_active_terminal(self.hpMain)
+        if terminal:
+            self.terminal_select_all(terminal)
+            
+    def on_menuCopyAll_activate(self, widget):
+        terminal = self.find_active_terminal(self.hpMain)
+        if terminal:
+            self.terminal_copy_all(terminal)
+    
     def on_contents_changed(self, terminal):
         col,row = terminal.get_cursor_position()        
         if terminal.last_logged_row != row:
@@ -966,7 +1060,7 @@ class Wmain(SimpleGladeApp):
             
             scrollPane = gtk.ScrolledWindow()            
             scrollPane.connect('button_press_event', lambda *args: True)
-            
+            scrollPane.set_property('hscrollbar-policy', gtk.POLICY_NEVER)
             tab = NotebookTabLabel("  %s  " % (host.name), self.nbConsole, scrollPane, self.popupMenuTab )
             
             v.connect("child-exited", lambda widget: tab.mark_tab_as_closed())
@@ -1006,7 +1100,7 @@ class Wmain(SimpleGladeApp):
                 gtk.main_iteration(False)
             
             if host.host == '' or host.host == None:
-                v.fork_command("bash")
+                v.fork_command(SHELL)
             else:
                 cmd = SSH_COMMAND
                 password = host.password
@@ -1092,12 +1186,29 @@ class Wmain(SimpleGladeApp):
         global groups       
 
         self.treeModel = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_PYOBJECT, gtk.gdk.Pixbuf)
-        self.treeServers.set_model(self.treeModel)        
-        column = gtk.TreeViewColumn("", gtk.CellRendererPixbuf(), pixbuf=2)
-        column.set_sizing(gtk.TREE_VIEW_COLUMN_AUTOSIZE)        
+        self.treeServers.set_model(self.treeModel)
+
+        self.treeServers.set_level_indentation(5)
+        #Force the alternating row colors, by default it's off with one column
+        self.treeServers.set_property('rules-hint', True)
+        gtk.rc_parse_string( """
+                style "custom-treestyle"{
+                    GtkTreeView::allow-rules = 1
+                }
+                widget "*treeServers*" style "custom-treestyle"
+            """)
+        column = gtk.TreeViewColumn()
+        column.set_title('Servers')
         self.treeServers.append_column( column )
-        column = gtk.TreeViewColumn(_("Servidores"), gtk.CellRendererText(), text=0)
-        self.treeServers.append_column( column )
+
+        renderer = gtk.CellRendererPixbuf()
+        column.pack_start(renderer, expand=False)
+        column.add_attribute(renderer, 'pixbuf', 2)
+
+        renderer = gtk.CellRendererText()
+        column.pack_start(renderer, expand=True)
+        column.add_attribute(renderer, 'text', 0)
+        
         self.treeServers.set_has_tooltip(True)
         self.treeServers.connect('query-tooltip', self.on_treeServers_tooltip)
         self.loadConfig()
@@ -1117,7 +1228,7 @@ class Wmain(SimpleGladeApp):
     def loadConfig(self):
         global groups
         
-        cp= ConfigParser.RawConfigParser( )
+        cp= ConfigParser.RawConfigParser(  )
         cp.read( CONFIG_FILE )
         
         #Leer configuracion general
@@ -1143,6 +1254,7 @@ class Wmain(SimpleGladeApp):
             conf.AUTO_CLOSE_TAB = cp.getint("options", "auto-close-tab")
             conf.SHOW_PANEL = cp.getboolean("window", "show-panel")
             conf.SHOW_TOOLBAR = cp.getboolean("window", "show-toolbar")
+            conf.STARTUP_LOCAL = cp.getboolean("options","startup-local")
         except:
             print "%s: %s" % (_("Entrada invalida en archivo de configuracion"), sys.exc_info()[1])
         
@@ -1156,6 +1268,10 @@ class Wmain(SimpleGladeApp):
             scuts[cp.get("shortcuts", "paste")] = _PASTE
         except:
             scuts["CTRL+SHIFT+V"] = _PASTE
+        try:
+            scuts[cp.get("shortcuts", "copy_all")] = _COPY_ALL
+        except:
+            scuts["CTRL+SHIFT+A"] = _COPY_ALL
         try:
             scuts[cp.get("shortcuts", "save")] = _SAVE
         except:
@@ -1192,6 +1308,11 @@ class Wmain(SimpleGladeApp):
             scuts[cp.get("shortcuts", "console_reconnect")] = _CONSOLE_RECONNECT
         except:
             scuts["CTRL+N"] = _CONSOLE_RECONNECT
+          
+        try:
+            scuts[cp.get("shortcuts", "connect")] = _CONNECT
+        except:
+            scuts["CTRL+RETURN"] = _CONNECT
             
         ##kaman
         try:
@@ -1240,6 +1361,13 @@ class Wmain(SimpleGladeApp):
         self.treeModel.foreach(self.is_node_collapsed, nodes)
         return nodes
         
+    def set_collapsed_nodes(self):
+        self.treeServers.expand_all()
+        if self.treeModel.get_iter_root():
+            for node in conf.COLLAPSED_FOLDERS.split(","): 
+                if node!='':
+                    self.treeServers.collapse_row(node)
+        
     def updateTree(self):
         for grupo in dict(groups):
             if len(groups[grupo])==0:
@@ -1248,7 +1376,9 @@ class Wmain(SimpleGladeApp):
         if conf.COLLAPSED_FOLDERS == None:
             conf.COLLAPSED_FOLDERS = ','.join(self.get_collapsed_nodes())
         
-        self.treeModel.clear()         
+        self.menuServers.foreach(self.menuServers.remove)
+        self.treeModel.clear()
+        
         iconHost = self.treeServers.render_icon("gtk-network", size=gtk.ICON_SIZE_BUTTON, detail=None)
         iconDir = self.treeServers.render_icon("gtk-directory", size=gtk.ICON_SIZE_BUTTON, detail=None)             
         
@@ -1257,26 +1387,41 @@ class Wmain(SimpleGladeApp):
         
         for grupo in grupos:
             group = None
-            path = ""            
+            path = ""
+            menuNode = self.menuServers
+                  
             for folder in grupo.split("/"):
-                path = path + '/' + folder                
-                row = self.get_folder(self.treeModel, '', path)                
+                path = path + '/' + folder
+                row = self.get_folder(self.treeModel, '', path)
                 if row == None:
                     group = self.treeModel.prepend(group, [folder, None, iconDir])
                 else:
                     group = row.iter
+                
+                menu = self.get_folder_menu(self.menuServers, '', path)
+                if menu == None:
+                    menu = gtk.ImageMenuItem(folder)
+                    #menu.set_image(gtk.image_new_from_stock(gtk.STOCK_DIRECTORY, gtk.ICON_SIZE_MENU))
+                    menuNode.prepend(menu)
+                    menuNode = gtk.Menu()
+                    menu.set_submenu(menuNode)
+                    menu.show()
+                else:
+                    menuNode = menu
+                
             groups[grupo].sort(key=operator.attrgetter('name'))
             for host in groups[grupo]:
                 self.treeModel.append(group, [host.name, host, iconHost])
-        
-        self.treeServers.expand_all()
-        if self.treeModel.get_iter_root():
-            for node in conf.COLLAPSED_FOLDERS.split(","): 
-                if node!='':
-                    self.treeServers.collapse_row(node)
+                mnuItem = gtk.ImageMenuItem(host.name)
+                mnuItem.set_image(gtk.image_new_from_stock(gtk.STOCK_NETWORK, gtk.ICON_SIZE_MENU))
+                mnuItem.show()
+                mnuItem.connect("activate", lambda arg, nb, h: self.addTab(nb, h), self.nbConsole, host) 
+                menuNode.append(mnuItem)
+                
+        self.set_collapsed_nodes()
         conf.COLLAPSED_FOLDERS = None
         
-    def get_folder(self, obj, folder, path):        
+    def get_folder(self, obj, folder, path): 
         if not obj: 
             return None        
         for row in obj:
@@ -1284,8 +1429,18 @@ class Wmain(SimpleGladeApp):
                 return row
             i = self.get_folder(row.iterchildren(), folder+'/'+row[0], path)
             if i:
-                return i            
+                return i
         
+    def get_folder_menu(self, obj, folder, path):
+        if not obj or not (isinstance(obj,gtk.Menu) or isinstance(obj,gtk.MenuItem)):
+            return None
+        for item in obj.get_children():
+            if path == folder+'/'+item.get_label():
+                return item.get_submenu()
+            i = self.get_folder_menu(item.get_submenu(), folder+'/'+item.get_label(), path)
+            if i:
+                return i
+                
     def writeConfig(self): 
         global groups
         
@@ -1295,6 +1450,7 @@ class Wmain(SimpleGladeApp):
         cp.add_section("options")
         cp.set("options", "word-separators", conf.WORD_SEPARATORS)        
         cp.set("options", "buffer-lines", conf.BUFFER_LINES)
+        cp.set("options", "startup-local", conf.STARTUP_LOCAL)
         cp.set("options", "confirm-exit", conf.CONFIRM_ON_EXIT)
         cp.set("options", "font-color", conf.FONT_COLOR)
         cp.set("options", "back-color", conf.BACK_COLOR)
@@ -1309,9 +1465,9 @@ class Wmain(SimpleGladeApp):
         cp.set("options", "version", app_fileversion)
         cp.set("options", "auto-close-tab", conf.AUTO_CLOSE_TAB)
 
-        conf.COLLAPSED_FOLDERS = ','.join(self.get_collapsed_nodes())         
+        collapsed_folders = ','.join(self.get_collapsed_nodes())         
         cp.add_section("window")
-        cp.set("window", "collapsed-folders", conf.COLLAPSED_FOLDERS)
+        cp.set("window", "collapsed-folders", collapsed_folders)
         cp.set("window", "left-panel-width", self.hpMain.get_position())
         cp.set("window", "window-width", conf.WINDOW_WIDTH)
         cp.set("window", "window-height", conf.WINDOW_HEIGHT)
@@ -1325,7 +1481,7 @@ class Wmain(SimpleGladeApp):
                 cp.add_section(section)
                 HostUtils.save_host_to_ini(cp, section, host)
                 i+=1
-                
+        
         cp.add_section("shortcuts")
         i=1
         for s in shortcuts:            
@@ -1413,9 +1569,7 @@ class Wmain(SimpleGladeApp):
                     return wid
             return None
 
-    def on_page_removed(self, widget, *args):
-        self.count-=1
-        
+    def check_notebook_pages(self, widget):
         if widget.get_n_pages()==0:
             #eliminar el notebook solo si queda otro notebook y no quedan tabs en el actual            
             paned = widget.get_parent()            
@@ -1432,10 +1586,21 @@ class Wmain(SimpleGladeApp):
                 else:
                     self.nbConsole = self.find_notebook(save)
 
-
-    def on_page_added(self, widget, *args):        
+    def on_page_removed(self, widget, *args):
+        self.count-=1
+        if hasattr(widget, "is_closed") and widget.is_closed:
+            #tab has been closed
+            self.check_notebook_pages(widget)
+        else:
+            #tab has been moved to another notebook
+            #save a reference to this notebook, on_page_added check if the notebook must be removed
+            self.check_notebook = widget
+            
+    def on_page_added(self, widget, *args):
         self.count+=1
-        
+        if hasattr(self, "check_notebook"):
+            self.check_notebook_pages(self.check_notebook)
+            delattr(self, "check_notebook")
         
     def show_save_buffer(self, terminal):        
         dlg = gtk.FileChooserDialog(title=_("Guardar como"), parent=self.wMain, action=gtk.FILE_CHOOSER_ACTION_SAVE)
@@ -1473,7 +1638,11 @@ class Wmain(SimpleGladeApp):
         conf.SHOW_PANEL = visibility
     
     def set_toolbar_visible(self, visibility):
-        self.get_widget("toolbar1").set_visible(visibility)
+        #self.get_widget("toolbar1").set_visible(visibility)
+        if visibility:
+            self.get_widget("toolbar1").show()
+        else:
+            self.get_widget("toolbar1").hide()
         self.get_widget("show_toolbar").set_active(visibility)
         conf.SHOW_TOOLBAR = visibility
         
@@ -1665,7 +1834,7 @@ class Wmain(SimpleGladeApp):
             host = self.treeModel.get_value(selected,1)
             wHost = Whost()
             wHost.init(host.group, host)
-            self.updateTree()            
+            #self.updateTree()            
     #-- Wmain.on_bntEdit_clicked }
 
     #-- Wmain.on_btnDel_clicked {
@@ -1915,11 +2084,11 @@ class HostUtils:
         user = cp.get(section, "user")
         password = decrypt(pwd, cp.get(section, "pass"))
         description = HostUtils.get_val(cp, section, "description", "")
-        private_key = HostUtils.get_val(cp, section, "private_ley", "")
+        private_key = HostUtils.get_val(cp, section, "private_key", "")
         port = HostUtils.get_val(cp, section, "port", "22")
         tunnel = HostUtils.get_val(cp, section, "tunnel", "")
         ctype = HostUtils.get_val(cp, section, "type", "ssh")
-        commands = HostUtils.get_val(cp, section, "commands", "")
+        commands = HostUtils.get_val(cp, section, "commands", "").replace('\x00', '\n')
         keepalive = HostUtils.get_val(cp, section, "keepalive", "")
         fcolor = HostUtils.get_val(cp, section, "font-color", "")
         bcolor = HostUtils.get_val(cp, section, "back-color", "")
@@ -1948,7 +2117,7 @@ class HostUtils:
         cp.set(section, "port", host.port)
         cp.set(section, "tunnel", host.tunnel_as_string())
         cp.set(section, "type", host.type)
-        cp.set(section, "commands", host.commands)
+        cp.set(section, "commands", host.commands.replace('\n', '\x00'))
         cp.set(section, "keepalive", host.keep_alive)
         cp.set(section, "font-color", host.font_color)
         cp.set(section, "back-color", host.back_color)
@@ -2399,6 +2568,7 @@ class Wconfig(SimpleGladeApp):
         self.addParam(_(u"Tamaño del buffer"), "conf.BUFFER_LINES", int, 1, 1000000)
         self.addParam(_("Transparencia"), "conf.TRANSPARENCY", int, 0, 100)
         self.addParam(_("Ruta de logs"), "conf.LOG_PATH", str)
+        self.addParam(_("Abrir consola local al inicio"), "conf.STARTUP_LOCAL", bool)
         self.addParam(_(u"Pegar con botón derecho"), "conf.PASTE_ON_RIGHT_CLICK", bool)
         self.addParam(_(u"Copiar selección al portapapeles"), "conf.AUTO_COPY_SELECTION", bool)
         self.addParam(_("Confirmar al cerrar una consola"), "conf.CONFIRM_ON_CLOSE_TAB", bool)
@@ -2634,8 +2804,9 @@ class Wconfig(SimpleGladeApp):
     #-- Wconfig.on_btnFont_clicked }
 
     #-- Wconfig.on_treeCommands_key_press_event {
-    def on_treeCommands_key_press_event(self, widget, event, *args):        
-        if self.capture_keys and len(args)==3 and event.keyval != gtk.keysyms.Return:
+    def on_treeCommands_key_press_event(self, widget, event, *args):
+        if self.capture_keys and len(args)==3 and (event.keyval != gtk.keysyms.Return or
+                                                   event.state != 0):
             model, rownum, colnum = args           
             widget.set_text(get_key_name(event))            
     #-- Wconfig.on_treeCommands_key_press_event }
@@ -2770,8 +2941,9 @@ class NotebookTabLabel(gtk.HBox):
         close_btn = gtk.Button()
         close_btn.set_relief(gtk.RELIEF_NONE)
         close_btn.connect('clicked', self.on_close_tab, owner_)
-        close_btn.set_size_request(image_w+2, image_h+2)
-        close_btn.add(close_image)        
+        close_btn.set_size_request(image_w+7, image_h+6)
+        close_btn.add(close_image)
+        style = close_btn.get_style();
         self.eb2 = gtk.EventBox()
         self.eb2.add(close_btn)        
         self.pack_start(self.eb2, False, False)
@@ -2803,7 +2975,9 @@ class NotebookTabLabel(gtk.HBox):
         notebook = self.widget.get_parent()        
         page=notebook.page_num(self.widget)
         if page >= 0:
-            notebook.remove_page(page)        
+            notebook.is_closed = True
+            notebook.remove_page(page)
+            notebook.is_closed = False       
             self.widget.destroy()
         
     def mark_tab_as_closed(self):

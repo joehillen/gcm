@@ -142,6 +142,133 @@
 	  </child>
 
 	  <child>
+	    <widget class="GtkMenuItem" id="menuitem7">
+	      <property name="visible">True</property>
+	      <property name="label" translatable="yes">_Editar</property>
+	      <property name="use_underline">True</property>
+          <child>
+            <widget class="GtkMenu" id="menuitem5_menu">
+                
+              <child>
+                <widget class="GtkImageMenuItem" id="menuCopy">
+                  <property name="visible">True</property>
+                  <property name="label" translatable="yes">Copiar</property>
+                  <signal name="activate" handler="on_menuCopy_activate" last_modification_time="Fri, 17 Jul 2009 21:52:05 GMT"/>
+                  <child internal-child="image">
+                    <widget class="GtkImage" id="image36">
+                      <property name="visible">True</property>
+                      <property name="stock">gtk-copy</property>
+                      <property name="icon_size">1</property>
+                      <property name="xalign">0.5</property>
+                      <property name="yalign">0.5</property>
+                      <property name="xpad">0</property>
+                      <property name="ypad">0</property>
+                    </widget>
+                   </child>
+                </widget>
+              </child>
+              
+              <child>
+                <widget class="GtkImageMenuItem" id="menuPaste">
+                  <property name="visible">True</property>
+                  <property name="label" translatable="yes">Pegar</property>
+                  <signal name="activate" handler="on_menuPaste_activate" last_modification_time="Fri, 17 Jul 2009 21:52:05 GMT"/>
+                  <child internal-child="image">
+                    <widget class="GtkImage" id="image36">
+                      <property name="visible">True</property>
+                      <property name="stock">gtk-paste</property>
+                      <property name="icon_size">1</property>
+                      <property name="xalign">0.5</property>
+                      <property name="yalign">0.5</property>
+                      <property name="xpad">0</property>
+                      <property name="ypad">0</property>
+                    </widget>
+                   </child>
+                </widget>
+              </child>
+              
+              <child>
+                <widget class="GtkImageMenuItem" id="menuCopyPaste">
+                  <property name="visible">True</property>
+                  <property name="label" translatable="yes">Copiar y Pegar</property>
+                  <signal name="activate" handler="on_menuCopyPaste_activate" last_modification_time="Fri, 17 Jul 2009 21:52:05 GMT"/>
+                  <child internal-child="image">
+                    <widget class="GtkImage" id="image36">
+                      <property name="visible">True</property>
+                      <property name="stock">gtk-index</property>
+                      <property name="icon_size">1</property>
+                      <property name="xalign">0.5</property>
+                      <property name="yalign">0.5</property>
+                      <property name="xpad">0</property>
+                      <property name="ypad">0</property>
+                    </widget>
+                   </child>
+                </widget>
+              </child>
+              
+              <child>
+                <widget class="GtkImageMenuItem" id="menuSelectAll">
+                  <property name="visible">True</property>
+                  <property name="label" translatable="yes">Seleccionar todo</property>
+                  <signal name="activate" handler="on_menuSelectAll_activate" last_modification_time="Fri, 17 Jul 2009 21:52:05 GMT"/>
+                  <child internal-child="image">
+                    <widget class="GtkImage" id="image36">
+                      <property name="visible">True</property>
+                      <property name="stock">gtk-select-all</property>
+                      <property name="icon_size">1</property>
+                      <property name="xalign">0.5</property>
+                      <property name="yalign">0.5</property>
+                      <property name="xpad">0</property>
+                      <property name="ypad">0</property>
+                    </widget>
+                   </child>
+                </widget>
+              </child>
+              
+              <child>
+                <widget class="GtkImageMenuItem" id="menuCopyAll">
+                  <property name="visible">True</property>
+                  <property name="label" translatable="yes">Copiar todo</property>
+                  <signal name="activate" handler="on_menuCopyAll_activate"  last_modification_time="Fri, 17 Jul 2009 21:52:05 GMT"/>
+                  <child internal-child="image">
+                    <widget class="GtkImage" id="image36">
+                      <property name="visible">True</property>
+                      <property name="stock">gtk-select-all</property>
+                      <property name="icon_size">1</property>
+                      <property name="xalign">0.5</property>
+                      <property name="yalign">0.5</property>
+                      <property name="xpad">0</property>
+                      <property name="ypad">0</property>
+                    </widget>
+                   </child>
+                </widget>
+              </child>
+              
+              <child>
+		       <widget class="GtkSeparatorMenuItem" id="separador2">
+		        <property name="visible">True</property>
+		       </widget>
+		      </child>
+              
+              
+              <child>
+                <widget class="GtkMenuItem" id="menuitem9">
+                  <property name="visible">True</property>
+                  <property name="label" translatable="yes">Comandos personalizados</property>
+                  
+                  <child>
+                    <widget class="GtkMenu" id="menuCustomCommands"></widget>
+                  </child>
+                  
+                </widget>
+              </child>
+              
+            </widget>
+          </child>
+        </widget>
+      </child>
+      
+	  <child>
 	    <widget class="GtkMenuItem" id="menuitem5">
 	      <property name="visible">True</property>
 	      <property name="label" translatable="yes">_Ver</property>
@@ -174,6 +301,18 @@
           
 	    </widget>
 	  </child>
+      
+	  <child>
+	    <widget class="GtkMenuItem" id="menuitem6">
+	      <property name="visible">True</property>
+	      <property name="label" translatable="yes">_Servidores</property>
+	      <property name="use_underline">True</property>
+          <child>
+             <widget class="GtkMenu" id="menuServers"> 
+            </widget>
+          </child>
+        </widget>
+      </child>      
       
 	  <child>
 	    <widget class="GtkMenuItem" id="menuitem4">
@@ -318,7 +457,7 @@
 		  <property name="focus_on_click">True</property>
 		  <signal name="clicked" handler="on_btnConnect_clicked" last_modification_time="Fri, 17 Jul 2009 20:13:34 GMT"/>
 		  <accelerator key="C" modifiers="GDK_MOD1_MASK" signal="clicked"/>
-		  <accelerator key="Return" modifiers="GDK_CONTROL_MASK" signal="clicked"/>
+		  <!-- <accelerator key="Return" modifiers="GDK_CONTROL_MASK" signal="clicked"/> -->
 
 		  <child>
 		    <widget class="GtkAlignment" id="alignment4">
@@ -3621,7 +3760,7 @@ if not, write to the Free Software Foundation, Inc.,
 	      <property name="visible">True</property>
 	      <property name="can_default">True</property>
 	      <property name="can_focus">True</property>
-	      <property name="label">gtk-cancel</property>
+	      <property name="label">gtk-close</property>
 	      <property name="use_stock">True</property>
 	      <property name="relief">GTK_RELIEF_NORMAL</property>
 	      <property name="focus_on_click">True</property>
@@ -4011,6 +4150,7 @@ if not, write to the Free Software Foundation, Inc.,
 
 	      <child>
 		<widget class="GtkTextView" id="txtCommands">
+		  <property name="height_request">60</property>
 		  <property name="visible">True</property>
 		  <property name="can_focus">True</property>
 		  <property name="editable">True</property>

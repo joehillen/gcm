@@ -343,6 +343,10 @@ def encrypt(text, password):
     for i in range(16):
         IV.append(randint(0, 255))
 
+    #PADDING
+    numpads = 16 - (len(text)%16)
+    text = text + numpads*chr(numpads)
+
     # convert password to AES 256-bit key
     aesKey = passwordToKey(password)
 
@@ -380,10 +384,7 @@ def encrypt(text, password):
 
         # grab next block from input file
         block = getBlock(fp)
-    # if the message ends on a block boundary, we need to add an
-    # extra block of padding
-    if filesize % 16 == 0:
-        outfile.write(16*chr(16))
+
     # close file pointers
     fp.close()
     s = base64.b64encode(outfile.getvalue())
